@@ -2,7 +2,7 @@ function gadget:GetInfo()
   return {
     name      = "Lava Gadget 2.3",
     desc      = "lava",
-    author    = "knorke, Beherith, The_Yak, Anarchid, Kloot, Gajop",
+    author    = "knorke, Beherith, The_Yak, Anarchid, Kloot, Gajop, ivand",
     date      = "Feb 2011, Nov 2013",
     license   = "GNU GPL, v2 or later",
     layer     = -3,
