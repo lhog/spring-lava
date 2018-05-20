@@ -127,7 +127,6 @@ local heightTex = "$heightmap"
 
 local shader
 local timeLoc
-local cameraPosLoc
 
 function gadget:Initialize()
 	Spring.SetDrawWater(true)
@@ -157,10 +156,7 @@ function gadget:Initialize()
 				uniform float mapsizex;
 				uniform float mapsizez;
 
-				//uniform vec3 cameraPos;
-
 				varying vec2 hmuv;
-				//varying float cameraDist;
 
 				void main()
 				{
@@ -169,7 +165,6 @@ function gadget:Initialize()
 
 					lavaHeight = gl_Vertex.y;
 					hmuv = vec2(gl_Vertex.x / mapsizex, gl_Vertex.z / mapsizez);
-					//cameraDist = distance(gl_Vertex.xyz, cameraPos);
 
 					gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
 				}
@@ -187,12 +182,9 @@ function gadget:Initialize()
 				uniform sampler2D lavacolor;
 				uniform sampler2D height;
 
-				uniform vec3 cameraPos;
-
 				uniform float minHeight;
 
 				varying vec2 hmuv;
-				//varying float cameraDist;
 
 
 				////////////////////////////////////////////////////////////////////////////////
@@ -253,8 +245,8 @@ function gadget:Initialize()
 						return vec2(gradx,grady);
 					}
 
-					#define MAX_OCTAVES 10
-					#define MIN_OCTAVES 5
+					#define MAX_OCTAVES 6
+					#define MIN_OCTAVES 1
 
 					float flow(in vec2 p, int octaves)
 					{
@@ -310,11 +302,11 @@ function gadget:Initialize()
 						vec2 p = gl_TexCoord[0].st * vec2(UV_MULT);
 
 						vec3 worldVertex = vec3(hmuv.s * mapsizex, lavaHeight, hmuv.t * mapsizez);
-						float cameraDist = distance(worldVertex, cameraPos);
+						float cameraDist = 1.0 / gl_FragCoord.w; //magically returns distance from the camera origin to this pixel
 
 						const vec2 CAM_MINMAX = vec2(200.0, 6600.0);
 
-						// LOG scaling doesn't work as expected. Unsure why.....
+						// LOG scaling doesn't work as well as expected. TODO, figure something out, because linear scaling overdraw things.
 						//float logMul = (MAX_OCTAVES - MIN_OCTAVES) / log(CAM_MINMAX.y - CAM_MINMAX.x + 1.0);
 						//int octaves = int(MAX_OCTAVES - floor(logMul * log( clamp(cameraDist, CAM_MINMAX.x, CAM_MINMAX.y) - CAM_MINMAX.x + 1.0 )));
 
@@ -362,7 +354,6 @@ function gadget:Initialize()
 			Spring.Echo("LAVA shader compilation failed, falling back to GL Lava. See infolog for details")
 		else
 			timeLoc = gl.GetUniformLocation(shader, "time")
-			cameraPosLoc = gl.GetUniformLocation(shader, "cameraPos")
 			Spring.Echo('Lava shader compiled successfully! Yay!')
 		end
 	end
@@ -393,9 +384,6 @@ function DrawGroundHuggingSquare(x1, z1, x2, z2, HoverHeight)
 		local f=Spring.GetGameFrame()
 
 		gl.Uniform(timeLoc, f)
-
-		local cx, cy, cz = Spring.GetCameraPosition()
-		gl.Uniform(cameraPosLoc, cx, cy, cz)
 
 		gl.Texture(0, lavaTex)-- Texture file
 		gl.Texture(1, heightTex)-- Texture file
