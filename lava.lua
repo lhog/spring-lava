@@ -157,6 +157,7 @@ function gadget:Initialize()
 				uniform float mapsizez;
 
 				varying vec2 hmuv;
+				varying vec4 viewSpacePos;
 
 				void main()
 				{
@@ -165,8 +166,9 @@ function gadget:Initialize()
 
 					lavaHeight = gl_Vertex.y;
 					hmuv = vec2(gl_Vertex.x / mapsizex, gl_Vertex.z / mapsizez);
-
-					gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+					
+					viewSpacePos = gl_ModelViewMatrix * gl_Vertex;
+					gl_Position = gl_ProjectionMatrix * viewSpacePos;
 				}
 
 			]],
@@ -185,6 +187,7 @@ function gadget:Initialize()
 				uniform float minHeight;
 
 				varying vec2 hmuv;
+				varying vec4 viewSpacePos;
 
 
 				////////////////////////////////////////////////////////////////////////////////
@@ -246,7 +249,7 @@ function gadget:Initialize()
 					}
 
 					#define MAX_OCTAVES 10
-					#define MIN_OCTAVES 6
+					#define MIN_OCTAVES 5
 
 					float flow(in vec2 p, int octaves)
 					{
@@ -302,7 +305,9 @@ function gadget:Initialize()
 						vec2 p = gl_TexCoord[0].st * vec2(UV_MULT);
 
 						vec3 worldVertex = vec3(hmuv.s * mapsizex, lavaHeight, hmuv.t * mapsizez);
-						float cameraDist = 1.0 / gl_FragCoord.w; //magically returns distance from the camera origin to this pixel
+						//float cameraDist = gl_FragCoord.z / gl_FragCoord.w; //magically returns distance from the camera origin to this pixel
+						float cameraDist = length(viewSpacePos);
+						//float cameraDist = abs(viewSpacePos.z);
 
 						const vec2 CAM_MINMAX = vec2(200.0, 6600.0);
 
