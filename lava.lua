@@ -245,8 +245,8 @@ function gadget:Initialize()
 						return vec2(gradx,grady);
 					}
 
-					#define MAX_OCTAVES 6
-					#define MIN_OCTAVES 1
+					#define MAX_OCTAVES 10
+					#define MIN_OCTAVES 6
 
 					float flow(in vec2 p, int octaves)
 					{
