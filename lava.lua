@@ -166,7 +166,7 @@ function gadget:Initialize()
 
 					lavaHeight = gl_Vertex.y;
 					hmuv = vec2(gl_Vertex.x / mapsizex, gl_Vertex.z / mapsizez);
-					
+
 					viewSpacePos = gl_ModelViewMatrix * gl_Vertex;
 					gl_Position = gl_ProjectionMatrix * viewSpacePos;
 				}
@@ -221,20 +221,33 @@ function gadget:Initialize()
 				#if defined(FANCY_LAVA)
 					#define time2 time * 0.005
 
-					float rand(vec2 co)
-					{
-						float a = 12.9898;
-						float b = 78.233;
-						float c = 43758.5453;
-						float dt = dot(co.xy ,vec2(a,b));
-						float sn = mod(dt, M_PI);
-						return fract(sin(sn) * c);
-					}
+					#if 1
+						#define HASHSCALE1 .1031
+						float hash12(vec2 p)
+						{
+							vec3 p3  = fract(vec3(p.xyx) * HASHSCALE1);
+							p3 += dot(p3, p3.yzx + 19.19);
+							return fract((p3.x + p3.y) * p3.z);
+						}
+						#define rand(p) hash12(p)
+					#else
+						//this one is apparently terrible. See: https://www.shadertoy.com/view/4djSRW
+						float rand(vec2 co)
+						{
+							float a = 12.9898;
+							float b = 78.233;
+							float c = 43758.5453;
+							float dt = dot(co.xy ,vec2(a,b));
+							float sn = mod(dt, M_PI);
+							return fract(sin(sn) * c);
+						}
+					#endif
 
 					float noise(in vec2 n)
 					{
 						const vec2 d = vec2(0.0, 1.0);
-						vec2 b = floor(n), f = smoothstep(vec2(0.0), vec2(1.0), fract(n));
+						vec2 b = floor(n);
+						vec2 f = 0.5 * (1.0 - cos(M_PI * fract(n)));
 						return mix(mix(rand(b), rand(b + d.yx), f.x), mix(rand(b + d.xy), rand(b + d.yy), f.x), f.y);
 					}
 
