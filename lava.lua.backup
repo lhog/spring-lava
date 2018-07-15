@@ -1,0 +1,728 @@
+function gadget:GetInfo()
+  return {
+    name      = "Lava Gadget 2.3",
+    desc      = "lava",
+    author    = "knorke, Beherith, The_Yak, Anarchid, Kloot, Gajop, ivand",
+    date      = "Feb 2011, Nov 2013",
+    license   = "GNU GPL, v2 or later",
+    layer     = -3,
+    enabled   = true
+  }
+end
+-----------------
+
+
+if (gadgetHandler:IsSyncedCode()) then
+
+tideRhym = {}
+tideIndex = 1
+tideContinueFrame = 0
+lavaLevel = 3
+lavaGrow =0
+gameframe=0
+
+function gadget:Initialize()
+	_G.lavaLevel = lavaLevel
+	_G.frame = 0
+	addTideRhym (0, 0, 5*6000)
+	-- addTideRhym (150, 0.25, 3)
+	-- addTideRhym (-20, 0.25, 5*60)
+	-- addTideRhym (150, 0.25, 5)
+	-- addTideRhym (-20, 1, 5*60)
+	-- addTideRhym (180, 0.5, 60)
+	-- addTideRhym (240, 0.2, 10)
+end
+
+
+function addTideRhym (targetLevel, speed, remainTime)
+	local newTide = {}
+	newTide.targetLevel = targetLevel
+	newTide.speed = speed
+	newTide.remainTime = remainTime
+	table.insert (tideRhym, newTide)
+end
+
+
+function updateLava ()
+	if (lavaGrow < 0 and lavaLevel < tideRhym[tideIndex].targetLevel)
+		or (lavaGrow > 0 and lavaLevel > tideRhym[tideIndex].targetLevel) then
+		tideContinueFrame = gameframe + tideRhym[tideIndex].remainTime*30
+		lavaGrow = 0
+		--Spring.Echo ("Next LAVA LEVEL change in " .. (tideContinueFrame-gameframe)/30 .. " seconds")
+	end
+
+	if (gameframe == tideContinueFrame) then
+		tideIndex = tideIndex + 1
+		if (tideIndex > table.getn (tideRhym)) then
+			tideIndex = 1
+		end
+		--Spring.Echo ("tideIndex=" .. tideIndex .. " target=" ..tideRhym[tideIndex].targetLevel )
+		if  (lavaLevel < tideRhym[tideIndex].targetLevel) then
+			lavaGrow = tideRhym[tideIndex].speed
+		else
+			lavaGrow = -tideRhym[tideIndex].speed
+		end
+	end
+end
+
+local function clamp(low, x, high)
+	return math.min(math.max(x, low), high)
+end
+
+function gadget:GameFrame (f)
+	_G.lavaLevel = lavaLevel + clamp(-0.95, math.sin(f / 30), 0.95) * 2.1 --clamp to avoid jittering when sin(x) is around +-1
+	_G.frame = f
+
+	if (f%10==0) then
+		lavaDeathCheck()
+	end
+
+	updateLava ()
+	lavaLevel = lavaLevel+lavaGrow
+
+	local x = math.random(1,Game.mapX*512)
+	local z = math.random(1,Game.mapY*512)
+	local y = Spring.GetGroundHeight(x,z)
+	if y  < lavaLevel then
+		Spring.SpawnCEG("lavaburst", x, lavaLevel, z)
+	end
+end
+
+function lavaDeathCheck ()
+local all_units = Spring.GetAllUnits()
+	for i in ipairs(all_units) do
+		local x,y,z = Spring.GetUnitPosition(all_units[i])
+		if (y ~= nil) then
+			if (y and y < lavaLevel) then
+				Spring.AddUnitDamage(all_units[i], 50)
+			end
+		end
+	end
+end
+
+local DAMAGE_EXTSOURCE_WATER = -5
+
+function gadget:UnitPreDamaged(unitID, unitDefID, unitTeam, damage, paralyzer, weaponDefID, projectileID)
+    if (weaponDefID ~= DAMAGE_EXTSOURCE_WATER) then
+           -- not water damage, do not modify
+           return damage, 1.0
+    end
+
+    local unitDef = UnitDefs[unitDefID]
+    local moveDef = unitDef.moveDef
+
+    if (moveDef == nil or moveDef.family ~= "hover") then
+          -- not a hovercraft, do not modify
+          return damage, 1.0
+    end
+
+    return 0.0, 1.0
+end
+
+
+else --- UNSYCNED:
+
+local lavaTex = ":la:LuaRules/images/lavacolor3.png"
+--local lavaTex = "LuaRules/images/unwrap_helper.jpg"
+local heightTex = "$heightmap"
+
+local shader
+local shaderEmit
+local timeLoc
+local lavaLevelLoc
+
+local ssmfEmissionX, ssmfEmissionY
+local ssmfEmissionTexOrig
+local ssmfEmissionTexNew
+local fbo
+
+
+local MAPSIDE_MAPINFO = "mapinfo.lua"
+local mapInfo = VFS.FileExists(MAPSIDE_MAPINFO) and VFS.Include(MAPSIDE_MAPINFO) or false
+
+local origTexName = mapInfo.resources.lightemissiontex
+local origTexNamePath
+if origTexName then
+	origTexNamePath = "maps/"..origTexName
+end
+Spring.Echo("origTexName", origTexName, origTexNamePath)
+
+
+local function DrawMesh(x1, z1, x2, z2, tiles, uvmul)
+	local xstep = (x2 - x1) / tiles
+	local zstep = (z2 - z1) / tiles
+
+	for xi = 0, tiles - 1 do
+		local x = x1 + xi * xstep
+		for zi = 0, tiles - 1 do
+			local z = z1 + zi * zstep
+
+			--top-left
+			gl.TexCoord( (xi + 0) / tiles * uvmul, (zi + 0) / tiles * uvmul)
+			gl.Vertex(x, 0, z)
+
+			--top-right
+			gl.TexCoord( (xi + 1) / tiles * uvmul, (zi + 0) / tiles * uvmul)
+			gl.Vertex(x + xstep, 0, z)
+
+			--bottom-right
+			gl.TexCoord( (xi + 1) / tiles * uvmul, (zi + 1) / tiles * uvmul)
+			gl.Vertex(x + xstep, 0, z + zstep)
+
+			--bottom-left
+			gl.TexCoord( (xi + 0) / tiles * uvmul, (zi + 1) / tiles * uvmul)
+			gl.Vertex(x, 0, z + zstep)
+		end
+	end
+end
+
+
+local lavaDispList = nil
+
+function gadget:Initialize()
+	local ssmfTexInfo = gl.TextureInfo("$ssmf_emission")
+	ssmfEmissionX, ssmfEmissionY = ssmfTexInfo.xsize, ssmfTexInfo.ysize
+
+	ssmfEmissionTexOrig = gl.CreateTexture(ssmfEmissionX, ssmfEmissionY, {
+							border = false,
+							min_filter = GL.LINEAR,
+							mag_filter = GL.LINEAR,
+							wrap_s = GL.CLAMP_TO_EDGE,
+							wrap_t = GL.CLAMP_TO_EDGE,
+							fbo = true,
+						})
+
+	ssmfEmissionTexNew = gl.CreateTexture(ssmfEmissionX, ssmfEmissionY, {
+							border = false,
+							min_filter = GL.LINEAR,
+							mag_filter = GL.LINEAR,
+							wrap_s = GL.CLAMP_TO_EDGE,
+							wrap_t = GL.CLAMP_TO_EDGE,
+							fbo = true,
+						})
+
+	fbo = gl.CreateFBO({color0 = ssmfEmissionTexOrig, color1 = ssmfEmissionTexNew})
+	fbo.drawbuffers = {GL_COLOR_ATTACHMENT0_EXT, GL_COLOR_ATTACHMENT1_EXT}
+
+	Spring.Echo("ssmfEmissionX, ssmfEmissionY, ssmfEmissionTex", ssmfEmissionX, ssmfEmissionY, ssmfEmissionTexOrig, ssmfEmissionTexNew)
+	Spring.SetMapShadingTexture("$ssmf_emission", ssmfEmissionTexNew)
+
+	Spring.SetDrawWater(true)
+	Spring.SetDrawGround(true)
+	Spring.SetMapRenderingParams({voidWater = true, voidGround = true})
+
+	if (gl.CreateShader == nil) then
+		Spring.Echo("Shaders not found, reverting to non-GLSL lava gadget")
+	else
+		shader = gl.CreateShader({
+
+			uniform = {
+				mapsizex = Game.mapSizeX,
+				mapsizez = Game.mapSizeZ,
+				minHeight = -40,
+			},
+			uniformInt = {
+				lavacolor =0,
+				height = 1,
+			},
+
+			vertex = [[
+				#version 150 compatibility
+				#define M_PI 3.1415926535897932384626433832795
+				#if 1
+					#define HASHSCALE1 .1031
+					float hash12(vec2 p)
+					{
+						vec3 p3  = fract(vec3(p.xyx) * HASHSCALE1);
+						p3 += dot(p3, p3.yzx + 19.19);
+						return fract((p3.x + p3.y) * p3.z);
+					}
+					#define rand(p) hash12(p)
+				#else
+					//this one is apparently terrible. See: https://www.shadertoy.com/view/4djSRW
+					float rand(vec2 co)
+					{
+						float a = 12.9898;
+						float b = 78.233;
+						float c = 43758.5453;
+						float dt = dot(co.xy ,vec2(a,b));
+						float sn = mod(dt, M_PI);
+						return fract(sin(sn) * c);
+					}
+				#endif
+
+				float noise(in vec2 n)
+				{
+					const vec2 d = vec2(0.0, 1.0);
+					vec2 b = floor(n);
+					vec2 f = 0.5 * (1.0 - cos(M_PI * fract(n)));
+					return mix(mix(rand(b), rand(b + d.yx), f.x), mix(rand(b + d.xy), rand(b + d.yy), f.x), f.y);
+				}
+
+
+				// Application to vertex shader
+				//varying vec3 normal;
+				uniform float lavaLevel;
+
+				uniform float mapsizex;
+				uniform float mapsizez;
+
+				uniform float time;
+
+				out vData
+				{
+					vec2 uv;
+					vec2 hmuv;
+					float lavaHeight;
+					vec4 viewSpacePos;
+				} vertex;
+
+				void main()
+				{
+					vec2 uv = (gl_TextureMatrix[0] * gl_MultiTexCoord0).st;
+					vec2 uvn = uv * vec2(32.0);
+
+					//normal  = gl_NormalMatrix * gl_Normal;
+
+					float ns = 0.6 * noise(uvn) + 0.2 * noise(2.0 * uvn + vec2(0.3, 0.7) * time * 0.01 ) + 0.2 * noise(3.0 * uvn + vec2(0.7, 0.3) * time * 0.01 );
+
+					vertex.uv = uv;
+
+					float lavaHeight = gl_Vertex.y + ns * 100.0;
+					vertex.lavaHeight = lavaHeight;
+
+					vertex.hmuv = vec2(gl_Vertex.x / mapsizex, gl_Vertex.z / mapsizez);
+
+					vec4 viewSpacePos = gl_ModelViewMatrix * vec4(gl_Vertex.x, lavaHeight, gl_Vertex.z, 1.0);
+					vertex.viewSpacePos = viewSpacePos;
+
+					gl_Position = gl_ProjectionMatrix * viewSpacePos;
+				}
+
+			]],
+
+			geometry = [[
+				#version 150 compatibility
+				#extension GL_EXT_geometry_shader4 : enable
+
+				in vData
+				{
+					vec2 uv;
+					vec2 hmuv;
+					float lavaHeight;
+					vec4 viewSpacePos;
+				} vertices[];
+
+				out fData
+				{
+					vec3 normal;
+					vec2 uv;
+					vec2 hmuv;
+					float lavaHeight;
+					vec4 viewSpacePos;
+				} frag;
+
+				layout(triangles) in;
+				layout(triangle_strip, max_vertices = 6) out;
+
+				void main( void )
+				{
+					vec3 a = ( gl_in[1].gl_Position - gl_in[0].gl_Position ).xyz;
+					vec3 b = ( gl_in[2].gl_Position - gl_in[0].gl_Position ).xyz;
+					vec3 normal = normalize( cross( b, a ) );
+
+					for(int i = 0; i < gl_in.length(); i++)
+					{
+						frag.normal = normal;
+						frag.uv = vertices[i].uv;
+						frag.hmuv = vertices[i].hmuv;
+						frag.lavaHeight = vertices[i].lavaHeight;
+						frag.viewSpacePos = vertices[i].viewSpacePos;
+						gl_Position = gl_in[i].gl_Position;
+						EmitVertex();
+					}
+				}
+			]],
+
+			fragment = [[
+				#version 150 compatibility
+				#define M_PI 3.1415926535897932384626433832795
+				//varying vec3 normal;
+				//varying float lavaHeight;
+
+				uniform float time;
+				uniform float mapsizex;
+				uniform float mapsizez;
+				uniform sampler2D lavacolor;
+				uniform sampler2D height;
+
+				uniform float minHeight;
+
+				//varying vec2 hmuv;
+				//varying vec2 uv;
+				//varying vec4 viewSpacePos;
+
+				in fData
+				{
+					vec3 normal;
+					vec2 uv;
+					vec2 hmuv;
+					float lavaHeight;
+					vec4 viewSpacePos;
+				} frag;
+
+
+				////////////////////////////////////////////////////////////////////////////////
+
+				//#define FANCY_LAVA
+
+				//#define CRASH_SHADER
+
+				#ifdef CRASH_SHADER
+					blabla1 + blabla2;
+				#endif
+
+				vec4 bilinearTexture2D(sampler2D tex, vec2 res, vec2 uv)
+				{
+					vec2 st = uv * res - 0.5;
+
+					vec2 iuv = floor( st );
+					vec2 fuv = fract( st );
+
+					vec4 a = texture( tex, (iuv+vec2(0.5,0.5))/res );
+					vec4 b = texture( tex, (iuv+vec2(1.5,0.5))/res );
+					vec4 c = texture( tex, (iuv+vec2(0.5,1.5))/res );
+					vec4 d = texture( tex, (iuv+vec2(1.5,1.5))/res );
+
+					return mix(
+							mix( a, b, fuv.x),
+							mix( c, d, fuv.x), fuv.y
+							);
+				}
+
+				#if defined(FANCY_LAVA)
+					#define time2 time * 0.005
+
+					#if 1
+						#define HASHSCALE1 .1031
+						float hash12(vec2 p)
+						{
+							vec3 p3  = fract(vec3(p.xyx) * HASHSCALE1);
+							p3 += dot(p3, p3.yzx + 19.19);
+							return fract((p3.x + p3.y) * p3.z);
+						}
+						#define rand(p) hash12(p)
+					#else
+						//this one is apparently terrible. See: https://www.shadertoy.com/view/4djSRW
+						float rand(vec2 co)
+						{
+							float a = 12.9898;
+							float b = 78.233;
+							float c = 43758.5453;
+							float dt = dot(co.xy ,vec2(a,b));
+							float sn = mod(dt, M_PI);
+							return fract(sin(sn) * c);
+						}
+					#endif
+
+					float noise(in vec2 n)
+					{
+						const vec2 d = vec2(0.0, 1.0);
+						vec2 b = floor(n);
+						vec2 f = 0.5 * (1.0 - cos(M_PI * fract(n)));
+						return mix(mix(rand(b), rand(b + d.yx), f.x), mix(rand(b + d.xy), rand(b + d.yy), f.x), f.y);
+					}
+
+					mat2 makem2(in float theta){float c = cos(theta);float s = sin(theta);return mat2(c,-s,s,c);}
+
+					vec2 gradn(vec2 p)
+					{
+						float ep = 0.1;
+						float gradx = noise(vec2(p.x+ep,p.y))-noise(vec2(p.x-ep,p.y));
+						float grady = noise(vec2(p.x,p.y+ep))-noise(vec2(p.x,p.y-ep));
+						return vec2(gradx,grady);
+					}
+
+					#define MAX_OCTAVES 10
+					#define MIN_OCTAVES 5
+
+					float flow(in vec2 p, int octaves)
+					{
+						float z= 2.0;
+						float rz = 0.;
+						vec2 bp = p;
+						for (int i = 0; i < MAX_OCTAVES; ++i) {
+							if (i < octaves) {
+								//primary flow speed
+								p += time2 * -0.3;
+
+								//secondary flow speed (speed of the perceived flow)
+								bp += time2 * 0.3;
+
+								//displacement field (try changing time multiplier)
+								vec2 gr = gradn(1 * i * p * 0.34 + time2 * 1.0);
+
+								//rotation of the displacement field
+								gr *= makem2(time2 * 6.0 - (0.05 * p.x + 0.03 * p.y) * 40.0);
+
+								//displace the system
+								p += gr*.5;
+
+								//add noise octave
+								rz += (sin(noise(p)*5.0)*0.5+0.5)/z;
+
+								//blend factor (blending displaced system with base system)
+								//you could call this advection factor (.5 being low, .95 being high)
+								p = mix(bp, p, 0.77);
+
+								//intensity scaling
+								z *= 1.4;
+
+								//octave scaling
+								p *= 2.5;
+								bp *= 1.9;
+							}
+						}
+						return rz;
+					}
+				#endif
+
+				////////////////////////////////////////////////////////////////////////////////////
+
+				const vec3 SHORE_COLOR = vec3(0.96, 0.13, 0.02);
+				//const vec3 SHORE_COLOR = vec3(0.96, 1.13, 0.02);
+
+				void main()
+				{
+					#if defined(FANCY_LAVA)
+						const vec3 FANCYLAVA_COLOR = vec3(0.45, 0.1, 0.02);
+
+						vec2 p = frag.uv;
+
+						//float cameraDist = gl_FragCoord.z / gl_FragCoord.w; //magically returns distance from the camera origin to this pixel
+						float cameraDist = length(frag.viewSpacePos);
+						//float cameraDist = abs(frag.viewSpacePos.z);
+
+						const vec2 CAM_MINMAX = vec2(200.0, 6600.0);
+
+						// LOG scaling doesn't work as well as expected. TODO, figure something out, because linear scaling overdraw things.
+						//float logMul = (MAX_OCTAVES - MIN_OCTAVES) / log(CAM_MINMAX.y - CAM_MINMAX.x + 1.0);
+						//int octaves = int(MAX_OCTAVES - floor(logMul * log( clamp(cameraDist, CAM_MINMAX.x, CAM_MINMAX.y) - CAM_MINMAX.x + 1.0 )));
+
+						// Use linear scaling instead
+						int octaves = int(MAX_OCTAVES - floor((MAX_OCTAVES - MIN_OCTAVES) * clamp(cameraDist, CAM_MINMAX.x, CAM_MINMAX.y) / CAM_MINMAX.y));
+
+						float rz = flow(p, octaves);
+						vec3 col = FANCYLAVA_COLOR / rz;
+						vec4 vlavacolor = vec4(col, 1.0);
+						const float CONSTRAST_POW = 1.6;
+					#else
+						//gl_FragColor = vec4(vec3(frag.normal), 1.0);
+						//return;
+
+						vec2 p = frag.uv;
+
+						vec2 distortion;
+						distortion.x = p.s + sin(p.s * 20 + time / 50) / 350;
+						distortion.y = p.t + sin(p.t * 20 + time / 73) / 400;
+						vec4 vlavacolor = texture2D(lavacolor, distortion) + 0.1;
+
+						vec2 distortion2;
+						distortion2 = (distortion + M_PI * 12) * M_PI / 9;
+						vec4 vlavacolor2 = texture2D(lavacolor, distortion2) * 2 + 0.1;
+						vlavacolor *= vlavacolor2;
+						const float CONSTRAST_POW = 0.8;
+						//vlavacolor = texture2D(lavacolor, p);
+					#endif
+
+					vlavacolor.rgb = pow(vlavacolor.rgb, vec3(CONSTRAST_POW)); //change contrast
+
+					const vec2 SMOOTHSTEPS = vec2(-0.0015, 0.002);
+					vec2 inmap = smoothstep(SMOOTHSTEPS.x, SMOOTHSTEPS.y, frag.hmuv) * (1.0 - smoothstep(1.0 - SMOOTHSTEPS.y, 1.0 - SMOOTHSTEPS.x, frag.hmuv));
+
+					float groundHeight = bilinearTexture2D(height, vec2(mapsizex / 8.0, mapsizez / 8.0), frag.hmuv).r;
+					float factor = smoothstep(0.0, 1.0, (groundHeight - minHeight) / (frag.lavaHeight - minHeight)) * min(inmap.x, inmap.y);
+
+					const float FACTOR_POW = 8.0;
+					const float FACTOR_AMP = 1.0;
+
+					gl_FragColor = mix(vlavacolor, vec4(SHORE_COLOR.rgb, 0.0), pow(FACTOR_AMP * factor, FACTOR_POW));
+					//gl_FragColor = vec4(0.0);
+				}
+			]],
+		})
+		if (shader == nil) then
+			Spring.Echo(gl.GetShaderLog())
+			Spring.Echo("LAVA shader compilation failed, falling back to GL Lava. See infolog for details")
+		else
+			timeLoc = gl.GetUniformLocation(shader, "time")
+			lavaLevelLoc = gl.GetUniformLocation(shader, "lavaLevel")
+			Spring.Echo('Lava shader compiled successfully! Yay!')
+		end
+
+		shaderEmit = gl.CreateShader({
+			uniformInt = {
+				tex0 = 0,
+			},
+			fragment = [[
+				uniform sampler2D tex0;
+				void main()
+				{
+					vec2 uv = gl_TexCoord[0].st;
+					vec4 texCol = texture2D(tex0, uv);
+					gl_FragColor = texCol * 10.0;
+					//gl_FragColor = vec4(0.0,0.0,0.0,1.0);
+				}
+			]]
+		})
+		if (shaderEmit == nil) then
+			Spring.Echo(gl.GetShaderLog())
+			Spring.Echo("LAVA shader compilation failed, falling back to GL Lava. See infolog for details")
+		end
+
+	end
+end
+
+function gadget:Shutdown()
+	if (shader) then
+		gl.DeleteShader(shader)
+	end
+	if (shaderEmit) then
+		gl.DeleteShader(shaderEmit)
+	end
+	if (ssmfEmissionTexOrig) then
+		gl.DeleteTextureFBO(ssmfEmissionTexOrig)
+	end
+	if (ssmfEmissionTexNew) then
+		gl.DeleteTextureFBO(ssmfEmissionTexNew)
+	end
+
+	if (fbo) then
+		gl.DeleteFBO(fbo)
+	end
+
+	if (drawList) then
+		gl.DeleteList(drawList)
+	end
+
+	Spring.SetMapShadingTexture("$ssmf_emission", false)
+end
+
+local once = true
+local once2 = true
+local function DrawEmission()
+	if gl.IsValidFBO(fbo) then
+		if once then
+			gl.ActiveFBO(fbo, function()
+				gl.DepthTest(false)
+				gl.Blending(false)
+
+				if gl.Texture(0, origTexNamePath) then
+				--if gl.Texture(0, "$ssmf_emission") then
+					gl.TexRect(-1, -1, 1, 1)
+					gl.SaveImage(0, 0, ssmfEmissionX, ssmfEmissionY, "ssmf_emission_orig.png")
+
+					gl.RenderToTexture(ssmfEmissionTexOrig, function()
+						gl.Clear(GL.COLOR_BUFFER_BIT, 0.5, 0.5, 0.5, 0.5)
+						gl.TexRect(-1, -1, 1, 1)
+					end)
+					gl.Texture(0, false)
+					Spring.Echo("Saved", "ssmf_emission_orig.png")
+				end
+
+
+				if gl.Texture(0, ssmfEmissionTexOrig) then
+					once = false
+					gl.TexRect(-1, -1, 1, 1)
+					gl.SaveImage(0, 0, ssmfEmissionX, ssmfEmissionY, "ssmf_emission_once.png")
+					gl.Texture(0, false)
+					Spring.Echo("Saved", "ssmf_emission_once.png")
+				end
+			end)
+		end
+
+
+		gl.UseShader(shaderEmit)
+		gl.ActiveFBO(fbo, function()
+			gl.DepthTest(false)
+			gl.Blending(false)
+			--Spring.Echo(ssmfEmissionTex)
+
+			if gl.Texture(0, ssmfEmissionTexOrig) then
+				gl.RenderToTexture(ssmfEmissionTexNew, function()
+					gl.Clear(GL.COLOR_BUFFER_BIT, 0.5, 0.5, 0.5, 0.5)
+					gl.TexRect(-1, -1, 1, 1)
+				end)
+				gl.Texture(0, false)
+				--gl.UseShader(0)
+			end
+
+			if once2 then
+				if gl.Texture(0, ssmfEmissionTexNew) then
+					once2 = false
+					gl.TexRect(-1, -1, 1, 1)
+					gl.SaveImage(0, 0, ssmfEmissionX, ssmfEmissionY, "ssmf_emission_new.png")
+					gl.Texture(0, false)
+					Spring.Echo("Saved", "ssmf_emission_new.png")
+				end
+			end
+		end)
+		gl.UseShader(0)
+	end
+end
+
+function gadget:DrawWorldPreUnit()
+    if (SYNCED.lavaLevel) then
+
+		if not drawList then
+			drawList = gl.CreateList(
+			function ()
+				if shader then
+					gl.BeginEnd(GL.QUADS, DrawMesh, -2*Game.mapX*512, -2*Game.mapY*512,  3*Game.mapX*512, 3*Game.mapY*512, 512, 32)
+				else
+					gl.BeginEnd(GL.QUADS, DrawMesh, -2*Game.mapX*512, -2*Game.mapY*512,  3*Game.mapX*512, 3*Game.mapY*512, 1, 32)
+				end
+			end)
+		end
+
+		gl.PushAttrib(gl.ALL_ATTRIB_BITS)
+
+		gl.DepthTest(true)
+		gl.DepthMask(true)
+
+		gl.Texture(0, lavaTex)
+
+		if shader and gl.UseShader(shader) then
+			gl.Texture(1, heightTex)
+			local f = Spring.GetGameFrame()
+			gl.Uniform(timeLoc, f)
+			gl.Uniform(lavaLevelLoc, 10.0 * SYNCED.lavaLevel)
+
+			gl.CallList(drawList)
+
+			gl.Texture(1, false)
+			gl.UseShader(0)
+		else
+			gl.PushMatrix()
+			gl.Translate(0, 10.0 * SYNCED.lavaLevel, 0)
+			gl.CallList(drawList)
+			gl.PopMatrix()
+			--gl.BeginEnd(GL.QUADS, DrawMesh, 0, 0,  Game.mapX*512, Game.mapY*512, 2, 1)
+		end
+
+		gl.Texture(0, false)
+
+		gl.DepthTest(false)
+		gl.DepthMask(false)
+
+		gl.PopAttrib()
+	end
+	--DrawEmission()
+end
+
+function gadget:DrawGenesis()
+	DrawEmission()
+end
+
+
+end --ende unsync
