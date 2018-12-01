@@ -1,0 +1,3 @@
+[submodule "LuaRules/Libs/LuaShader"]
+	path = LuaRules/Libs/LuaShader
+	url = https://github.com/lhog/spring-luashader-goodies.git
